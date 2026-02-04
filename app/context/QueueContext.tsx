@@ -18,7 +18,7 @@ interface QueueState {
   sharedQueueCounter: number;
   kasirCounter: number;
   lastUpdate: number;
-  version: number; // Add version for conflict resolution
+  version: number;
 }
 
 interface QueueContextType {
@@ -41,8 +41,6 @@ const initialLokets: LoketData[] = [
   { id: "kasir", name: "KASIR", prefix: "K", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: false },
 ];
 
-const STORAGE_KEY = "ptsp-queue-state-v3";
-
 const getInitialState = (): QueueState => ({
   lokets: initialLokets,
   sharedQueueCounter: 0,
@@ -51,35 +49,6 @@ const getInitialState = (): QueueState => ({
   version: 0,
 });
 
-// Read state from localStorage
-function readFromStorage(): QueueState {
-  if (typeof window === "undefined") return getInitialState();
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved) as QueueState;
-      // Ensure all required fields exist
-      return {
-        ...getInitialState(),
-        ...parsed,
-      };
-    }
-  } catch (e) {
-    console.error("Error reading from localStorage:", e);
-  }
-  return getInitialState();
-}
-
-// Write state to localStorage
-function writeToStorage(state: QueueState): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error("Error writing to localStorage:", e);
-  }
-}
-
 // Context
 const QueueContext = createContext<QueueContextType | undefined>(undefined);
 
@@ -87,187 +56,77 @@ const QueueContext = createContext<QueueContextType | undefined>(undefined);
 export function QueueProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<QueueState>(getInitialState);
   const [isLoading, setIsLoading] = useState(true);
-  const stateRef = useRef<QueueState>(state);
+  const versionRef = useRef(0);
   const isUpdatingRef = useRef(false);
 
-  // Keep ref in sync with state
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
+  // Fetch state from API
+  const fetchState = useCallback(async () => {
+    if (isUpdatingRef.current) return;
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    const stored = readFromStorage();
-    setState(stored);
-    stateRef.current = stored;
-    setIsLoading(false);
-  }, []);
-
-  // Listen for storage events from other tabs
-  useEffect(() => {
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue && !isUpdatingRef.current) {
-        try {
-          const newState = JSON.parse(e.newValue) as QueueState;
-          // Only update if the incoming state is newer
-          if (newState.version > stateRef.current.version) {
-            setState(newState);
-            stateRef.current = newState;
-          }
-        } catch (e) {
-          console.error("Error parsing storage event:", e);
+    try {
+      const response = await fetch("/api/queue");
+      if (response.ok) {
+        const data: QueueState = await response.json();
+        // Only update if version is newer
+        if (data.version > versionRef.current) {
+          versionRef.current = data.version;
+          setState(data);
         }
       }
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    } catch (error) {
+      console.error("Error fetching queue state:", error);
+    }
   }, []);
 
-  // Periodic sync for same-tab updates (BroadcastChannel alternative)
+  // Initial fetch
   useEffect(() => {
-    if (isLoading) return;
+    fetchState().finally(() => setIsLoading(false));
+  }, [fetchState]);
 
-    const syncInterval = setInterval(() => {
-      if (isUpdatingRef.current) return;
+  // Poll for updates every 500ms
+  useEffect(() => {
+    const interval = setInterval(fetchState, 500);
+    return () => clearInterval(interval);
+  }, [fetchState]);
 
-      const stored = readFromStorage();
-      // Only update if storage has newer version
-      if (stored.version > stateRef.current.version) {
-        setState(stored);
-        stateRef.current = stored;
-      }
-    }, 300);
-
-    return () => clearInterval(syncInterval);
-  }, [isLoading]);
-
-  // Atomic update function
-  const updateState = useCallback((updater: (prev: QueueState) => QueueState) => {
+  // Send action to API
+  const sendAction = useCallback(async (action: string, loketId?: string) => {
     isUpdatingRef.current = true;
 
-    // Read latest from storage to prevent overwrites
-    const current = readFromStorage();
-    const newState = updater({
-      ...current,
-      version: current.version, // Preserve current version for comparison
-    });
+    try {
+      const response = await fetch("/api/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, loketId }),
+      });
 
-    // Increment version
-    newState.version = current.version + 1;
-    newState.lastUpdate = Date.now();
-
-    // Write to storage first
-    writeToStorage(newState);
-
-    // Then update React state
-    setState(newState);
-    stateRef.current = newState;
-
-    // Reset updating flag after a short delay
-    setTimeout(() => {
+      if (response.ok) {
+        const data: QueueState = await response.json();
+        versionRef.current = data.version;
+        setState(data);
+      }
+    } catch (error) {
+      console.error("Error sending action:", error);
+    } finally {
       isUpdatingRef.current = false;
-    }, 100);
+    }
   }, []);
 
   const callNext = useCallback((loketId: string) => {
-    updateState((prev) => {
-      const loket = prev.lokets.find(l => l.id === loketId);
-      if (!loket) return prev;
-
-      let newSharedCounter = prev.sharedQueueCounter;
-      let newKasirCounter = prev.kasirCounter;
-      let newNumber: number;
-
-      if (loket.sharedQueue) {
-        newSharedCounter = prev.sharedQueueCounter + 1;
-        newNumber = newSharedCounter;
-      } else {
-        newKasirCounter = prev.kasirCounter + 1;
-        newNumber = newKasirCounter;
-      }
-
-      const newLokets = prev.lokets.map(l => {
-        if (l.id === loketId) {
-          return {
-            ...l,
-            currentNumber: newNumber,
-            lastCalled: Date.now(),
-          };
-        }
-        return l;
-      });
-
-      return {
-        ...prev,
-        lokets: newLokets,
-        sharedQueueCounter: newSharedCounter,
-        kasirCounter: newKasirCounter,
-      };
-    });
-  }, [updateState]);
+    sendAction("callNext", loketId);
+  }, [sendAction]);
 
   const recallCurrent = useCallback((loketId: string) => {
-    updateState((prev) => {
-      const newLokets = prev.lokets.map(l => {
-        if (l.id === loketId) {
-          return {
-            ...l,
-            lastCalled: Date.now(),
-          };
-        }
-        return l;
-      });
-
-      return {
-        ...prev,
-        lokets: newLokets,
-      };
-    });
-  }, [updateState]);
+    sendAction("recallCurrent", loketId);
+  }, [sendAction]);
 
   const resetQueue = useCallback((loketId: string) => {
-    updateState((prev) => {
-      const loket = prev.lokets.find(l => l.id === loketId);
-      if (!loket) return prev;
-
-      if (loket.sharedQueue) {
-        // Reset all shared queue lokets
-        const newLokets = prev.lokets.map(l => {
-          if (l.sharedQueue) {
-            return { ...l, currentNumber: 0, lastCalled: null };
-          }
-          return l;
-        });
-        return {
-          ...prev,
-          lokets: newLokets,
-          sharedQueueCounter: 0,
-        };
-      } else {
-        // Reset only this loket
-        const newLokets = prev.lokets.map(l => {
-          if (l.id === loketId) {
-            return { ...l, currentNumber: 0, lastCalled: null };
-          }
-          return l;
-        });
-        return {
-          ...prev,
-          lokets: newLokets,
-          kasirCounter: 0,
-        };
-      }
-    });
-  }, [updateState]);
+    sendAction("resetQueue", loketId);
+  }, [sendAction]);
 
   const resetAll = useCallback(() => {
-    updateState(() => ({
-      ...getInitialState(),
-      version: stateRef.current.version + 1,
-      lastUpdate: Date.now(),
-    }));
-  }, [updateState]);
+    sendAction("resetAll");
+  }, [sendAction]);
 
   const getLoket = useCallback((loketId: string) => {
     return state.lokets.find(l => l.id === loketId);
