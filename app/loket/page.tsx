@@ -14,7 +14,7 @@ export default function LoketSelectionPage() {
                 return "from-emerald-600 to-emerald-700";
             case "loket-3":
                 return "from-indigo-600 to-indigo-700";
-            case "kasir":
+            case "loket-4":
                 return "from-amber-500 to-orange-600";
             default:
                 return "from-slate-600 to-slate-700";
