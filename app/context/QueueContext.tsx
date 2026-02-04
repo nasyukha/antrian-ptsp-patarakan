@@ -38,7 +38,7 @@ const initialLokets: LoketData[] = [
   { id: "loket-1", name: "LOKET 1", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
   { id: "loket-2", name: "LOKET 2", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
   { id: "loket-3", name: "LOKET 3", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
-  { id: "kasir", name: "KASIR", prefix: "K", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: false },
+  { id: "loket-4", name: "LOKET 4", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
 ];
 
 const getInitialState = (): QueueState => ({

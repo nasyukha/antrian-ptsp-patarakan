@@ -111,7 +111,7 @@ export default function DisplayPage() {
   const loket1 = lokets.find(l => l.id === "loket-1");
   const loket2 = lokets.find(l => l.id === "loket-2");
   const loket3 = lokets.find(l => l.id === "loket-3");
-  const kasir = lokets.find(l => l.id === "kasir");
+  const loket4 = lokets.find(l => l.id === "loket-4");
 
   // Show loading state during SSR and initial hydration
   if (!mounted || isLoading) {
@@ -218,8 +218,8 @@ export default function DisplayPage() {
 
       {/* Queue Display Grid */}
       <main className="max-w-7xl mx-auto">
-        {/* Top Row - 3 Lokets */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-4 md:mb-6">
+        {/* 4 Lokets in 2x2 Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           {loket1 && (
             <QueueCard
               loketName={loket1.name}
@@ -247,16 +247,12 @@ export default function DisplayPage() {
               variant="primary"
             />
           )}
-        </div>
-
-        {/* Bottom Row - Kasir (Full Width) */}
-        <div className="max-w-2xl mx-auto">
-          {kasir && (
+          {loket4 && (
             <QueueCard
-              loketName={kasir.name}
-              prefix={kasir.prefix}
-              currentNumber={kasir.currentNumber}
-              lastCalled={kasir.lastCalled}
+              loketName={loket4.name}
+              prefix={loket4.prefix}
+              currentNumber={loket4.currentNumber}
+              lastCalled={loket4.lastCalled}
               variant="accent"
             />
           )}
