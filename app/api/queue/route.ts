@@ -18,9 +18,37 @@ interface QueueState {
     kasirCounter: number;
     lastUpdate: number;
     version: number;
+    lastResetDate: string; // Format: YYYY-MM-DD (timezone Asia/Jakarta)
 }
 
 const QUEUE_KEY = "antrian-ptsp-queue";
+
+// Helper function to get current date in Asia/Jakarta timezone
+function getCurrentDateString(): string {
+    const now = new Date();
+    const jakartaTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Jakarta" }));
+    const year = jakartaTime.getFullYear();
+    const month = String(jakartaTime.getMonth() + 1).padStart(2, "0");
+    const day = String(jakartaTime.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+// Helper function to reset queue state
+function getResetState(currentVersion: number): QueueState {
+    return {
+        lokets: [
+            { id: "loket-1", name: "LOKET 1", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
+            { id: "loket-2", name: "LOKET 2", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
+            { id: "loket-3", name: "LOKET 3", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
+            { id: "loket-4", name: "LOKET 4", prefix: "A", currentNumber: 0, lastCalled: null, isActive: true, sharedQueue: true },
+        ],
+        sharedQueueCounter: 0,
+        kasirCounter: 0,
+        lastUpdate: Date.now(),
+        version: currentVersion + 1,
+        lastResetDate: getCurrentDateString(),
+    };
+}
 
 // Initial state
 const initialState: QueueState = {
@@ -34,17 +62,31 @@ const initialState: QueueState = {
     kasirCounter: 0,
     lastUpdate: 0,
     version: 0,
+    lastResetDate: getCurrentDateString(),
 };
+
+// Check if queue needs daily reset
+function needsDailyReset(state: QueueState): boolean {
+    const currentDate = getCurrentDateString();
+    return !state.lastResetDate || state.lastResetDate !== currentDate;
+}
 
 // GET - Fetch current queue state
 export async function GET() {
     try {
-        const state = await kv.get<QueueState>(QUEUE_KEY);
+        let state = await kv.get<QueueState>(QUEUE_KEY);
 
         if (!state) {
             // Initialize with default state
             await kv.set(QUEUE_KEY, initialState);
             return NextResponse.json(initialState);
+        }
+
+        // Check if we need to reset for a new day
+        if (needsDailyReset(state)) {
+            console.log(`Daily reset triggered. Previous date: ${state.lastResetDate}, Current date: ${getCurrentDateString()}`);
+            state = getResetState(state.version);
+            await kv.set(QUEUE_KEY, state);
         }
 
         return NextResponse.json(state);
@@ -122,7 +164,7 @@ export async function POST(request: Request) {
             }
 
             case "resetAll": {
-                state = { ...initialState, version: state.version + 1, lastUpdate: Date.now() };
+                state = getResetState(state.version);
                 break;
             }
         }
